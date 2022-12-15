@@ -1,0 +1,743 @@
+---
+title: "Salary inference and prediction from college data"
+author: "Theodoros Mamalis"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: 2
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_depth: '2'
+---
+
+<style>
+body {
+text-align: justify}
+</style>
+
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+oldw = getOption("warn")
+options(warn = -1)
+```
+
+
+```{css, echo=FALSE}
+.solution {
+background-color: #CCDDFF;
+}
+```
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+options(scipen = 1, digits = 4, width = 80, fig.align = "center")
+```
+
+
+# Salary inference and prediction from college data
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(faraway)
+library(cowplot)
+library(glmnet)
+library(latticeExtra)
+library(grid)
+library(lmtest)
+library(MASS) 
+library(dplyr)
+library(knitr)
+library(mice)
+library(stringr)
+library(tidyverse)
+library(caret)
+
+```
+
+
+
+
+## Introduction and Explanation of the Data
+
+
+-Data origins.
+
+The data was obtained from Kaggle (link: https://www.kaggle.com/jessemostipak/college-tuition-diversity-and-pay/version/2?select=historical_tuition.csv). It originally came from the US Department of Education.
+
+
+-Data background.
+
+As per the Kaggle description these datasets contains diversity statistics (e.g. number of Native Americans), and tuition and fees for various United States college and universities, along with school type, degree length and state. 
+Moreover, historical tuition averages (e.g. over a few number of years) from the National Center for Education Statistics, are also included. Moreover, it  contains salary potential per university, and graduate rates, and other information. A complete description of the datasets along with the various sources from which the datasets were obrained can be found at: https://www.kaggle.com/jessemostipak/college-tuition-diversity-and-pay/version/2?select=historical_tuition.csv
+
+
+
+-Brief introduction of the goal of this final project.
+
+The goal of this final project is to firstly analyze the College Tuition dataset and then build inference and prediction models with the response variable being one of the dataset variables, and in specific, the sum of their estimated early- and mid-career salaries. For the first part, an Explanatory Data Analysis will be conducted which will analyze the dataset with respect to the nature of the variables included, what variables should be kept, trends between variables (e.g. the costs of college tuition by geographic area, or estimated salary trends) etc. For the second part, inference will be conducted initially, and inference conclusions will be presented. Then, prediction models will be made for that response variable and the best will be selected.
+
+
+Three datasets will be used.
+```{r, echo=FALSE, message=FALSE}
+diversity_school = read_csv("diversity_school.csv")
+salary_potential = read_csv("salary_potential.csv")
+tuition_cost = read_csv("tuition_cost.csv")
+```
+
+The first is a dataset containing enrollment information as shown below:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+head(diversity_school,3)
+```
+
+The second is a dataset containing various information including salary potential:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+head(salary_potential,3)
+```
+
+The third contains tuition cost information:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+head(tuition_cost,3)
+```
+
+## Data wrangling
+
+ For the first dataset the column values are turned into variables to create unique names for schools to join them with the other two datasets, and also create more predictors (feature engineering). Then, the first dataset is merged with the second and the resulting dataset is merged with the third. Afterwards, some duplicate predictors, concerning the various states, are dropped. The state names, (school) type and degree length predictors are converted to factors. Moreover, each observation is characterized by the name of the university. Therefore, the name of the university acts as a unique identifier for each observation, and can be dropped. Furthermore, the early career pay and mid career pay are added, to create a column of the sum of the two, which will serve as the predicted value of this dataset. After these changes, the first few observations of the final dataset is:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+withna = diversity_school[complete.cases(diversity_school),]
+wide_DF = withna %>% spread(category,enrollment)
+```
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+first_two = merge(x=salary_potential,y=tuition_cost,by="name")
+```
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+first_three = merge(x=first_two, y=wide_DF, by="name") 
+```
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+first_three_no_dupl = subset(first_three , select = -c(state_name, state.x, state.y))
+```
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+ final_data_na = first_three_no_dupl %>% mutate(across(c(state_code, type, degree_length),
+                                     as.factor))
+```
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+final_data_na = final_data_na %>% dplyr::select(-name)
+```
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+final_data_na = final_data_na %>% mutate(total_pay_mid_early =early_career_pay + mid_career_pay)
+head(final_data_na,3)
+```
+
+
+
+## Explanatory data analysis
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+axis.text.x_sz=15
+axis.text.y_sz=15
+axis.title.x_sz=15
+axis.title.y_sz=15
+plot.title_sz=20
+```
+
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+EDA_data= final_data_na %>% drop_na()
+```
+The observations with missing values for the purposes of EDA are dropped. Nonetheless, the resulting data contains `r nrow(EDA_data)` observations/schools which is still adequately large to give clues about trends or relationships between variables in EDA.
+
+The marginal distributions of the variables are:
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+marginal.plot(EDA_data[c(1:5,7:13)], default.scales = list(
+                relation = "free",
+                abbreviate = TRUE, minlength = 10,
+                rot = 30, cex = 0.75, tick.number = 3,
+                y = list(draw = FALSE)))
+```
+
+Most schools seem to have a stem percentage enrollment of approximately 15 per cent. Also, most of them are private, with a 4-year degree length.
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+marginal.plot(EDA_data[c(14:25)],default.scales = list(
+                relation = "free",
+                abbreviate = TRUE, minlength = 10,
+                rot = 30, cex = 0.75, tick.number = 3,
+                y = list(draw = FALSE)))
+```
+
+It is observed that the highest enrollments concern people identifying as White, and Two Or More Races. The former is perhaps justified since the White category is the most prevalent in the US.
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+EDA_data_first_two = first_two %>% drop_na()
+EDA_data_first_two = EDA_data_first_two %>% mutate(total_pay_mid_early =early_career_pay + mid_career_pay) %>% filter(type!="For Profit")
+
+plot1= ggplot(data=EDA_data_first_two, aes(x=state_code, y=total_pay_mid_early, fill=type)) +
+geom_bar(stat="summary",fun = "mean",color="darkred")+ ggtitle("Bar plot of combined early and mid career salary per region")+
+xlab("Region") + ylab("Early plus mid career salary") + theme(axis.text.x = element_text(angle = 90, size = axis.text.x_sz,  vjust = 0.5, hjust=1), axis.text.y = element_text(color = "grey20",  size = axis.text.y_sz, angle = 0, hjust = 1, vjust = 0, face = "plain"),
+        axis.title.x = element_text(color = "grey20",  size = axis.title.x_sz, angle = 0, hjust = .5, vjust = 0, face = "plain"),
+        axis.title.y = element_text(color = "grey20",  size = axis.title.y_sz, angle = 90, hjust = .5, vjust = .5, face = "plain"),
+        plot.title = element_text(size=plot.title_sz))
+```
+
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+histogram = ggplot(data=EDA_data_first_two, aes(x=state_code)) + geom_histogram(aes(fill=type), stat = "count",color="darkred") +
+xlab("Region") + ylab("Number of schools") + ggtitle("Histogram of number of school types per region")+
+labs(fill="type")+ scale_fill_brewer(palette="Paired") + theme(axis.text.x = element_text(angle = 90, size = axis.text.x_sz,  vjust = 0.5, hjust=1), axis.text.y = element_text(color = "grey20",  size = axis.text.y_sz, angle = 0, hjust = 1, vjust = 0, face = "plain"),
+        axis.title.x = element_text(color = "grey20",  size = axis.title.x_sz, angle = 0, hjust = .5, vjust = 0, face = "plain"),
+        axis.title.y = element_text(color = "grey20",  size = axis.title.y_sz, angle = 90, hjust = .5, vjust = .5, face = "plain"),
+        plot.title = element_text(size=plot.title_sz))
+```
+
+Next, a plot of early plus mid career salary per region is presented, along with a plot of Plot of number of private and public universities per region:
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+grid.newpage()
+grid.draw(rbind(ggplotGrob(plot1), ggplotGrob(histogram) ))
+```
+In most regions, the combined salary seems to be similar for each university types. Some regions such as MA and PA demonstrate high percentages of private schools whereas regions such as AK, AZ, and CO contain primarily public schools.
+
+
+Next a plot of stem percent per region is presented:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+ggplot(data=EDA_data_first_two, aes(x=state_code, y=stem_percent)) +
+geom_bar(stat="summary",fun = "mean",color="darkred")+ ggtitle("Percent of stem students")+
+xlab("Stem percent") + ylab("Percent of stem students") + theme(axis.text.x = element_text(angle = 90, size = axis.text.x_sz,  vjust = 0.5, hjust=1), axis.text.y = element_text(color = "grey20",  size = axis.text.y_sz, angle = 0, hjust = 1, vjust = 0, face = "plain"),
+        axis.title.x = element_text(color = "grey20",  size = axis.title.x_sz, angle = 0, hjust = .5, vjust = 0, face = "plain"),
+        axis.title.y = element_text(color = "grey20",  size = axis.title.y_sz, angle = 90, hjust = .5, vjust = .5, face = "plain"),
+        plot.title = element_text(size=plot.title_sz))
+```
+
+Most universities have step enrollments percentages less than 20.
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+plot4 = ggplot(data=EDA_data_first_two, aes(x=stem_percent, y=total_pay_mid_early , fill=type )) +
+geom_bar(stat="summary",fun = "mean")+ ggtitle("Percent of stem students")+
+xlab("Stem percent") + ylab("Early plus mid career salary") + theme(axis.text.x = element_text(angle = 90, size = axis.text.x_sz,  vjust = 0.5, hjust=1), axis.text.y = element_text(color = "grey20",  size = axis.text.y_sz, angle = 0, hjust = 1, vjust = 0, face = "plain"),  
+        axis.title.x = element_text(color = "grey20",  size = axis.title.x_sz, angle = 0, hjust = .5, vjust = 0, face = "plain"),
+        axis.title.y = element_text(color = "grey20",  size = axis.title.y_sz, angle = 90, hjust = .5, vjust = .5, face = "plain"),
+        plot.title = element_text(size=plot.title_sz))
+```
+
+Next, a plot of early plus mid career salary against stem percent per school type is presented, along with a plot of early plus mid career salary against stem percent without counting for school type, are presented:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+plot5 = ggplot(data=EDA_data_first_two, aes(x=stem_percent, y=total_pay_mid_early)) +
+geom_bar(stat="summary",fun = "mean",color="darkred")+ ggtitle("Percent of stem students")+
+xlab("Stem percent") + ylab("Early plus mid career salary") + theme(axis.text.x = element_text(angle = 90, size = axis.text.x_sz,  vjust = 0.5, hjust=1), axis.text.y = element_text(color = "grey20",  size = axis.text.y_sz, angle = 0, hjust = 1, vjust = 0, face = "plain"),  
+        axis.title.x = element_text(color = "grey20",  size = axis.title.x_sz, angle = 0, hjust = .5, vjust = 0, face = "plain"),
+        axis.title.y = element_text(color = "grey20",  size = axis.title.y_sz, angle = 90, hjust = .5, vjust = .5, face = "plain"),
+        plot.title = element_text(size=plot.title_sz))
+plot_grid(plot4, plot5)
+```
+
+
+Next, a plot of a combined in- and out-of-state tuition per region and per school type is presented:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+plot7 = ggplot(data=EDA_data_first_two, aes(x=state_code, y=in_state_total+out_of_state_total, fill=type)) +
+geom_bar(stat="summary",fun = "mean",color="darkred")+ ggtitle("Out of state plus in state tuition total per region")+
+xlab("Region") + ylab("Out of state plus in state tuition") + theme(text = element_text(size=10), axis.text.y = element_text(color = "grey20",  size = axis.text.y_sz, angle = 0, hjust = 1, vjust = 0, face = "plain"),  
+        axis.title.x = element_text(color = "grey20",  size = axis.title.x_sz, angle = 0, hjust = .5, vjust = 0, face = "plain"),
+        axis.title.y = element_text(color = "grey20",  size = axis.title.y_sz, angle = 90, hjust = .5, vjust = .5, face = "plain"),
+        plot.title = element_text(size=plot.title_sz))
+
+
+plot7
+```
+
+Private schools seem to charge higher tuition than public schools. Moreover, the highest public school tuition belongs to states such as AZ and VT. The highest private school tuition to states such as CA, PA and MA. Of course, these regions also contain high cost of living, so this could play a role in the tuition rates.
+
+## Inference
+
+In this section, inference will be made on the dataset by using ordinary linear regression. For this reason, highly correlated variables will be removed, since linear regression is susceptible to highly correlated variables (which give clues about colinearity and high Variance-Inflation-Factors(VIFs)). Moreover, the linearity and normality assumptions of the residuals will be check so that inference is reasonable. Further,the normality assumption is not necessary for good inference to be made since the number of observations is high enough. A ridge or elastic regression model could also be fit to deal with the colinearity issue during inference, however, their functions encode the factor levels as dummy variables internally, and they do not produce coefficients for every factor level in the output. These models will be used for prediction.
+
+### Check for colinearity
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+ final_data_na = final_data_na %>% mutate(total_pay_mid_early =early_career_pay + mid_career_pay) %>% dplyr::select(-c(early_career_pay, mid_career_pay))
+```
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+ final_data_na = final_data_na %>% rename_with(make.names)
+```
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+temp= final_data_na %>% dplyr::select_if(is.numeric) %>% drop_na()
+temp_factor = final_data_na %>% dplyr::select_if(is.factor) %>% drop_na()
+```
+
+
+The correlation matrix is:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center", warning=FALSE, message=FALSE}
+library(corrplot)
+
+corrplot(cor(temp), type = "upper", order = "hclust",
+         tl.col = "black", tl.srt = 45, tl.cex=0.6, addCoef.col="green", number.cex=0.25)
+```
+
+
+There seem to be some highly correlated variables. These are `total_enrollment` with `Women`, `White` with `total_enrollment` and `Women`, `out_of_state_tuition` with `out_of_state_total`, `in_state_total` with `out_of_state_tuition` and `out_of_state_total`, `in_state_tuition` with `in_state_total` and `out_of_state_tuition` and `out_of_state_total`. The `total_enrollment` and the `Woman` variables highly correlated since the latter is dependent on the former. Therefore, the `total_enrollment` variable is removed since it is also the sum of the races variables. The `Total.Minority` variable is dependent on the minority races and therefore it is removed. Moreover, the `Women` and `White` variables seem to be correlated for some reason, therefore the `Women` variable is removed, so that `White` along with the other categories (e.g. `Black` etc) are left in the dataset.
+
+The `in_state_total` is the sum of `room_and_board` and `in_state_tuition` and similarly for `out_of_state_total`. Therefore, the total variables are removed. Moreover, `in_state_tuition` and `out_of_state_tuition` are highly correlated. Therefore, they are added to form the `in_out_state_tuition` variable, so that their information is combined instead of just discarding information from one variable. After these changes, the correlation matrix of the resulting dataset is:
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+tempa = temp %>% mutate(in_out_state_tuition = in_state_tuition+out_of_state_tuition) %>% dplyr::select(-c( in_state_tuition, out_of_state_tuition,out_of_state_total,in_state_total, Women, total_enrollment, Total.Minority))
+
+corrplot(cor(tempa), type = "upper", order = "hclust",
+         tl.col = "black", tl.srt = 45, tl.cex=0.6, addCoef.col="green", number.cex=0.4)
+```
+The variables seem to not be strongly correlated now.
+
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+final_data_no_cor_na = final_data_na %>%  mutate(in_out_state_tuition = in_state_tuition+out_of_state_tuition) %>% dplyr::select(-c( in_state_tuition, out_of_state_tuition,out_of_state_total,in_state_total, Women, total_enrollment, Total.Minority)) %>% dplyr::select(-degree_length) %>% drop_na()
+
+final_data_no_cor_na=final_data_no_cor_na[,c(4:5,1:3,6:15,17,16)]
+```
+
+## Inference, after removing highly correlated variables
+
+
+Initially a lasso model will be fit which reduces the effects of colinearity. Then a linear regression model will be fit, since it  also gives coefficients for the factor levels (as opposed to a lasso fit through `glm`). Moreover, a linear regression is an unbiased estimator of the coefficients. Then the diagnostics will be checked for the linear regression model and it will be refit. The lasso model will also be refit. All of this is done for inference. For brevity, a table of the significant, at the 0.05 level, coefficients will not be shown. Discussion on the coefficients will follow at the end of the section. 
+
+Therefore, first a lasso is fit which reduces the effects of colinearity.  :
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center", warning=FALSE}
+set.seed(663740951)
+
+dataset_lm = final_data_no_cor_na
+# removing 542,  4,  405 because of leverage of 1. 115 for biggest jack. 
+
+set.seed(663740951)
+lasso.fit = cv.glmnet(data.matrix(dataset_lm[,-ncol(dataset_lm)]), dataset_lm[,ncol(dataset_lm)], nfolds = 4, alpha = 1, standardize = TRUE)
+   par(mfrow = c(1, 2))
+    plot(lasso.fit)
+    plot(lasso.fit$glmnet.fit, "lambda")
+lass_dat = coef(lasso.fit)
+```
+
+Then a linear regression is fit (all points with leverage one have been previously removed).
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+lm.fit = lm(total_pay_mid_early ~ ., data = dataset_lm  )
+pvals_no_intercept = summary(lm.fit)$coeff[-1,4]; lm.fit.coefficients = summary(lm.fit)$coeff[-1,1]
+toselect.x = pvals_no_intercept < 0.05
+
+vifs=faraway::vif(lm.fit)
+```
+
+The number of predictors with a VIF larger than 10 is `r sum(vifs>10)`. The diagnostics of the linear regression model are the following:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+n_d = nrow(dataset_lm)
+lev = hatvalues(lm.fit)
+
+par(mfrow=c(1,2))
+halfnorm(lev, 4, labs = row.names(dataset_lm), ylab = "Leverages")
+
+cook_dist_model = cooks.distance(lm.fit)
+halfnorm(cook_dist_model, labs=row.names(dataset_lm), ylab="Cook's distances")
+```
+
+The studentized residuals are:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+n_d = nrow(dataset_lm)
+studentized_resid = rstudent(lm.fit);
+sort(abs(studentized_resid), decreasing=TRUE)[1:5]
+```
+The extreme observations are 4, 405 and 452 all of which have leverage one. Moreover, observation 4 has the largest Cook's distance with the other observations being relatively close and less than one. Observation 115 has a studentized residual above five. Since these observations are few enough (four in total) they can be removed. Afterwards, the previous process is remade. That is is, initially a lasso is fit:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+dataset_lm = final_data_no_cor_na[-c(542,4, 405, 115 ),] #  542,  4, 405. 115 for biggest jack
+
+set.seed(663740951)
+lasso.fit = cv.glmnet(data.matrix(dataset_lm[,-ncol(dataset_lm)]), dataset_lm[,ncol(dataset_lm)], nfolds = 4, alpha = 1, standardize = TRUE)
+   par(mfrow = c(1, 2))
+    plot(lasso.fit)
+    plot(lasso.fit$glmnet.fit, "lambda")
+```
+
+
+Next, a linear regression is fit.
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+lm.fit = lm(total_pay_mid_early ~., data = dataset_lm)
+
+pvals_no_intercept = summary(lm.fit)$coeff[-1,4]; lm.fit.coefficients = summary(lm.fit)$coeff[-1,1]
+toselect.x = pvals_no_intercept < 0.05
+```
+
+
+The number of predictors with a VIF larger than 10 has now dropped considerably to `r sum(vifs>10)`. The linearity assumption is not verified too closely so boxcox is used, which includes $\lambda=-1/2$ (the boxcox plot is omitted for brevity). The first plot concerns the model before the boxcox transformation and the right plot the model after the boxcox tranformation:
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+par(mfrow=c(1,2))
+
+plot(lm.fit, which=1)
+
+lm.fit_tr = lm((total_pay_mid_early^(-0.3)-1)/(-0.3) ~ ., data = dataset_lm)
+plot(lm.fit_tr,which=1)
+```
+
+
+
+However, the coefficients of the box cox transformed model have the same sign therefore the same interpretation with the con that they are harder to interpret. Therefore, the non-boxcox model is chosen.
+
+The linear regression model deems that stem percentage is significant to predict the salary, with the stem percentage having among the the lowest pvalues. This is to be expected from the plots which show an increase in salary as the stem percentage increases. Also rank, which gives the estimated rank w.r.t. salary of a graduate of a university (observation) in a particular region, has among the lowest pvalues, which is expected. Moreover, among the 30 regions that are deemed significant, there are most of the regions with high stem percentages in their universities, e.g. IL or MA. The type of the university is also significant. Moreover, how the percent of alumni who think they are making the world a better place is also significant. The tuition costs is significant, which is to be expected since more stem oriented schools have higher tuition costs. The White category is also significant, but probably this is because they represent most of the graduates in each region.
+
+The lasso model chose the rank, the stem percent, room and board, Asian, Non Resident Foreign, and tuition costs. The first and second, as well as tuition, because of aforementioned reasons, were expected. Room and board was chosen probably because the higher they are, the more expensive the region and therefore the higher the salaries in order to compensate for the expensive region. Asian and Non Resident Foreign were also chosen. Regardless, the variables stem percent and rank have the highest absolute values by far compared with the others. It is noted that the nonzero coefficients for lasso were the same regardless of whether the leverage-one and highest-studentized-residual observations were included.
+
+
+
+## Missing data
+The dataset with highly correlated observations removed will be used. The missing values are:
+```{r, echo=FALSE, fig.width=9, fig.height=5, fig.align="center",warning=FALSE}
+ invisible(md.pattern(final_data_na, rotate.names = TRUE))
+```
+
+### Filling missing values
+
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+final_data_no_cor_na = final_data_na %>%  mutate(in_out_state_tuition = in_state_tuition+out_of_state_tuition) %>% dplyr::select(-c( in_state_tuition, out_of_state_tuition,out_of_state_total,in_state_total, Women, total_enrollment, Total.Minority)) %>% dplyr::select(-degree_length)
+
+final_data_no_cor_na=final_data_no_cor_na[,c(4:5,1:3,6:15,17,16)]
+```
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE,message=FALSE}
+set.seed(663740951)
+dataset_imp = final_data_no_cor_na[-c(580,4, 434, 127 ), ] # removing 580,  4, 434, because of leverage of 1. 127 for biggest jack
+dataset_imp = droplevels(dataset_imp) # drop unused levels
+
+  # perform imputation without the predicted variable
+  imp_mean = mice(dataset_imp[,-ncol(dataset_imp)], method = "mean", m = 1, maxit = 1, printFlag = FALSE)
+  imp_stochastic= mice(dataset_imp[,-ncol(dataset_imp)], method = "norm.nob", m = 1, maxit = 1, printFlag = FALSE)
+  imp_pred = mice(dataset_imp[,-ncol(dataset_imp)], method = "norm.predict", m = 1, maxit = 1, printFlag = FALSE)
+  imp_pred_sample = mice(dataset_imp[,-ncol(dataset_imp)], method = "sample", m = 1, maxit = 1, printFlag = FALSE)
+
+  # after performing the imputation, use this function to extract the imputed data
+  dataset_imp_mean=complete(imp_mean)
+  dataset_imp_stochastic=complete(imp_stochastic)
+  dataset_imp_pred=complete(imp_pred)
+  dataset_imp_sample=complete(imp_pred_sample)
+
+
+  # add back the predicted variable to the data matrix
+  data_mean = cbind(dataset_imp_mean,total_pay_mid_early=dataset_imp$total_pay_mid_early)
+  data_stochastic = cbind(dataset_imp_stochastic, total_pay_mid_early=dataset_imp$total_pay_mid_early)
+  data_pred = cbind(dataset_imp_pred,total_pay_mid_early=dataset_imp$total_pay_mid_early)
+  data_sample = cbind(dataset_imp_sample,total_pay_mid_early=dataset_imp$total_pay_mid_early)
+```
+
+The performance of four imputations is tested. These imputation methods are namely mean-value, stochastic regression, regression, and random-sample. Their performance is tested below:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+lm1 = lm(total_pay_mid_early ~ ., data=data_mean)
+mean(lm1$residuals^2)
+
+lm1 = lm(total_pay_mid_early ~ ., data=data_stochastic)
+mean(lm1$residuals^2)
+
+lm1 = lm(total_pay_mid_early ~ ., data=data_pred)
+mean(lm1$residuals^2)
+
+lm1 = lm(total_pay_mid_early ~ ., data=data_sample)
+mean(lm1$residuals^2)
+```
+
+The sample method gives the better fit, and this dataset with the sample-filled values will be chosen for the rest of the experiments. The dataset is also split into training and testing data with a 80%/20% train/test split. The training data will be used for training and validation, and the testing data will be used for calculating predictions and testing performance through RMSE.
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+data_mean=data_sample
+traintest= createDataPartition(y = data_mean$total_pay_mid_early, p = 0.8, list = F)
+data_mean_train =data_mean[traintest, ]
+data_mean_test = data_mean[-traintest, ]
+
+data_mean_train_for_lm = data_mean_train
+data_mean_test_for_lm = data_mean_test
+```
+
+
+
+
+## Prediction with various models
+
+
+The models under consideration will be Elastic Net, a Linear Regression model, KNN, a radial and a linear SVM, and Random Forests. The testing error measure is RMSE in all of the models.
+
+### Linear Regressors: Elastic Net, and Linear Regression
+
+
+
+An elastic net is fit using a 5-fold CV:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+set.seed(663740951)
+r=rep(0,5)
+a = seq(0,1,0.25)
+for (k in 1:5){
+enet.fit = cv.glmnet(data.matrix(data_mean_train[,-ncol(data_mean_train)]), data_mean_train[,ncol(data_mean_train)], nfolds = 5, alpha = a[k], standardize = TRUE)
+# r[k]= enet.fit$cvm[enet.fit$lambda==enet.fit$lambda.min]
+set.seed(663740951)}
+# a[which(r==min(r))]
+# (MSE = min(enet.fit$cvm))
+plot(enet.fit)
+```
+The best CV was selected by varying the $a$ parameter inside the set 0.00, 0.25, 0.50, 0.75, and 1.00. The best CV belonged to $a=1$, i.e., a Lasso model. The minimum lambda belongs to a model with 14 parameters, and the 1 standard error lambda belongs to a model with 6 parameters. 
+
+
+Prediction on testing data, using `lambda.min` gives a test error of:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+preds_lambda.min = predict(enet.fit, data.matrix(data_mean_test[,-ncol(data_mean_test)]),
+                    s = "lambda.min")
+MSE_test=mean(preds_lambda.min - data_mean_test[,ncol(data_mean_test)])^2
+(RMSE_test_elnet.min= sqrt(MSE_test) )
+```
+
+Prediction on testing data, using `lambda.1se` gives a test error of:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+preds_lambda.1se = predict(enet.fit, data.matrix(data_mean_test[,-ncol(data_mean_test)]),
+                    s = "lambda.1se")
+MSE_test=mean(preds_lambda.1se - data_mean_test[,ncol(data_mean_test)])^2
+(RMSE_test_elnet.1se= sqrt(MSE_test) )
+
+names_lambda=c("lambda.min","lambda.1se")
+RMSE_test_elnet = min(RMSE_test_elnet.min, RMSE_test_elnet.1se)
+```
+
+Therefore, the model using `r names_lambda[which.min(c(min(RMSE_test_elnet.min),min(RMSE_test_elnet.1se)))]` will be used.
+
+Next, a linear model is fit using both-ways stepwise AIC criterion.
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+lm.fit = lm(total_pay_mid_early ~ .-type-state_code, data = data_mean_train_for_lm   )
+```
+
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+step.model.AIC = stepAIC(lm.fit, direction = "both", trace = FALSE)
+```
+
+The best AIC model contains the rank, the stem percent, the room and board costs, the tuition costs, the make-world-better percent and ethnicities. 
+
+The best AIC model is crossvalidated. The test error is:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+set.seed(663740951)
+train.control = trainControl(method = "cv", number = 5)
+
+model = train(total_pay_mid_early ~ . -type-state_code , data = data_mean_train_for_lm, method = "lm",
+               trControl = train.control)
+
+preds = predict(model, data_mean_test_for_lm[,-ncol(data_mean_test_for_lm)])
+
+MSE_test= mean(preds - data_mean_test_for_lm[,ncol(data_mean_test_for_lm)])^2
+(RMSE_test_lm_AIC_CV = sqrt(MSE_test) )
+```
+
+
+### KNN
+
+Leave one out CV for KNN is performed, simultaneously testing for 1 to 15 neighbours and four kinds of kernels, namely triangular, rectangular, epanechnikov and optimal:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE,message=FALSE}
+library(kknn)
+
+fit.knn = train.kknn(total_pay_mid_early ~ ., data_mean_train, kmax = 15, kernel =
+	c("triangular", "rectangular", "epanechnikov", "optimal"))
+```
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+plot(fit.knn)
+```
+The best model is the model with the `r fit.knn$best.parameters$kernel` kernel, and where the number of neighbours is `r fit.knn$best.parameters$k`. Overall, it is observed that the triangular and epanechnikov kernels yield similar performance, with the latter having slightly lower performance. The optimal kernel yields slightly lower performance than the latter too. The rectangular kernel, i.e., classical K-NN, yields the lowest performance.
+
+Predictions on test using the best  model data yields a test error of:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+preds = predict(fit.knn, data_mean_test[,-ncol(data_mean_test)])
+
+MSE_test= mean(preds - data_mean_test[,ncol(data_mean_test)])^2 
+(RMSE_test_knn= sqrt(MSE_test) )
+```
+
+A knn model using 5-fold CV was investigated. However, the LOOCV model performed better, therefore the latter is chosen. The former is omitted due to space constraints.
+
+
+### SVM
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE,message=FALSE}
+library(e1071) # gia svm(y~.,...). Last update, 22/12/2016.
+library(kernlab) # kiriws gia kernel methods.
+```
+
+
+Next, SVM models are fit using 5-fold CV. Using radial kernel and varying cost and $\sigma$.
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+set.seed(663740951) #use the same CV folds each time
+
+svm.radial = train(total_pay_mid_early ~ ., data = data_mean_train, method = "svmRadial",
+             tuneGrid = expand.grid(C = c(0.25, 0.5, 1), sigma = c(0.001, 0.01, 0.05)),
+             trControl = trainControl(method="cv", number=5))
+```
+The mean squared error on the training data is:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+(MSE_train_svm.radial = min(svm.radial$results[,3])^2 )
+```
+
+Predictions on testing data yield a testing error of:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+preds = predict(svm.radial, data_mean_test[,-ncol(data_mean_test)])
+
+MSE_test_svm.radial= mean(preds - data_mean_test[,ncol(data_mean_test)])^2 
+(RMSE_test_svm.radial= sqrt(MSE_test_svm.radial) )
+```
+
+
+
+Using linear kernel and varying cost with 5-fold CV:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+cost.grid = expand.grid(C = seq(0.01, 1, length = 5))
+  train_control = trainControl(method="cv", number=5)
+
+  set.seed(663740951) #use the same CV folds each time
+  svm.fit = train(total_pay_mid_early ~ ., data = data_mean_train, method = "svmLinear",
+                trControl = train_control,
+                tuneGrid = cost.grid)
+```
+
+The mean squared error on the training data is:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+(MSE = min(svm.fit$results[,2])^2 )
+```
+
+Predictions on test data yield a testing error of:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+preds = predict(svm.fit, data_mean_test[,-ncol(data_mean_test)])
+
+MSE_test= mean(preds - data_mean_test[,ncol(data_mean_test)])^2
+(RMSE_test_svm.linear= sqrt(MSE_test) )
+```
+
+
+
+
+Plots for SVM using the linear kernel:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+par(mfrow=c(2,2))
+
+lm_general = lm(predict(svm.fit, newdata=data_mean_test[,-ncol(data_mean_test)]) ~ ., data=data_mean_test )
+
+ceof_lm_stem = coef(lm(predict(svm.fit, newdata=data_mean_test[,-ncol(data_mean_test)]) ~ stem_percent, data=data_mean_test ))
+plot(data_mean_test$stem_percent,lm_general$fitted.values, xlab="Stem percent",ylab="Fitted values")
+abline(a=ceof_lm_stem[1], b=ceof_lm_stem[2],col="green") # apo lm_stem
+
+coef_lm_rank = coef(lm(predict(svm.fit, newdata=data_mean_test[,-ncol(data_mean_test)]) ~ rank, data=data_mean_test ))
+plot(data_mean_test$rank,lm_general$fitted.values, xlab="Rank",ylab="Fitted values")
+abline(a=coef_lm_rank[1], b=coef_lm_rank[2],col="green") # apo lm_stem
+
+coef_lm_room_and_board = coef(lm(predict(svm.fit, newdata=data_mean_test[,-ncol(data_mean_test)]) ~ room_and_board, data=data_mean_test ))
+plot(data_mean_test$room_and_board,lm_general$fitted.values, xlab="Room and board",ylab="Fitted values")
+abline(a=coef_lm_room_and_board[1], b=coef_lm_room_and_board[2],col="green") # apo lm_stem
+
+coef_lm_total_pay_mid_early = coef(lm(predict(svm.fit, newdata=data_mean_test[,-ncol(data_mean_test)]) ~ total_pay_mid_early, data=data_mean_test ))
+plot(data_mean_test$total_pay_mid_early, lm_general$fitted.values, xlab="Combined early- and mid-career salary",ylab="Fitted values")
+abline(a=coef_lm_total_pay_mid_early[1], b=coef_lm_total_pay_mid_early[2],col="green") # apo lm_stem
+```
+
+ The fitted value for the predicted value combined early- and mid-career salary, is fit adequately. The trend demonstrated in the rest of the plots are expected from the Inference section, and from the sign of the coefficients specifically. That is, as the stem percentage and the room-and-board costs increase the estimated salary increases. As rank increases the estimated salary decreases.
+ 
+It can be observed that the significant variables that appeared during inference (i.e. linear regression and elastic net), have an adequate fit. These variables are step percent, rank and room-and-board. Therefore, the superior (as will be shown) performance of the Linear Kernel SVM , with respect to the other models, could be explained by the adequate fitting of the most important variables.
+
+
+### Random Forests
+
+A random forest model is fit below using 5-fold CV, varying `mtry`, `min.node.size` and `ntree`.
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+library(ranger)
+
+set.seed(663740951)
+param_grid = expand.grid(mtry = c(1,2), min.node.size = c(10, 25, 40), splitrule = "variance")
+train_ctrl = trainControl(method = "CV", number = 5)
+
+
+modellist=list()
+treesize =  c(300,500)
+jj=0
+for (ntree in treesize) {
+	set.seed(663740951)
+  jj=jj+1
+rf.fit2 = train(total_pay_mid_early~., data=data_mean_train, method = 'ranger', respect.unordered.factors = "partition", importance = "impurity", num.trees=treesize[jj],
+  tuneGrid = param_grid, trControl = train_ctrl)
+key=toString(ntree)
+	modellist[[key]] = rf.fit2
+}
+
+MSE = list()
+best_tunes_mtry = list()
+best_tunes_min_node_size = list()
+for (i in 1:length(treesize)) {
+		mse=min(modellist[[i]]$results[,4])^2
+		MSE[[i]]=mse
+		best_tunes_mtry[[i]]=modellist[[i]]$bestTune[[1]]
+		best_tunes_min_node_size[[i]] = modellist[[i]]$bestTune[[3]]
+}
+```
+
+The minimum MSE is:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+(min_MSE = min(unlist(MSE))) 
+```
+
+for the model with `ntree` of `r treesize[(which.min(MSE))]` , `mtry` of `r unlist(best_tunes_mtry)[(which.min(MSE))]`  and minimum node size of `r unlist(best_tunes_min_node_size)[(which.min(MSE))]`.
+
+Predictions on test data yield a testing error of:
+```{r, echo=FALSE, fig.width=16, fig.height=5, fig.align="center",warning=FALSE}
+preds =  predict(modellist[[which.min(MSE)]], data_mean_test[,-ncol(data_mean_test)])
+
+MSE_test= mean(preds - data_mean_test[,ncol(data_mean_test)])^2
+(RMSE_test_random_forest= sqrt(MSE_test) )
+```
+
+
+A variable importance plot is shown below:
+```{r, echo=FALSE, fig.width=16, fig.height=5, fig.align="center",warning=FALSE}
+ impurity_rf.fit2 = varImp(rf.fit2)
+```
+
+```{r, echo=FALSE, fig.width=16, fig.height=5, fig.align="center",warning=FALSE}
+ variable_importance_tree = data.frame(Variables=rownames(impurity_rf.fit2$importance), Overall=impurity_rf.fit2$importance$Overall)
+```
+
+```{r, echo=FALSE, fig.width=16, fig.height=5, fig.align="center",warning=FALSE}
+var_imp_tree_top20 = head(variable_importance_tree[order(variable_importance_tree$Overall, decreasing= T),], n = 20)
+
+ggplot(var_imp_tree_top20, aes(x=reorder(Variables, Overall), y=Overall,fill=Overall))+
+      geom_bar(stat="identity", position="dodge")+ coord_flip()+
+      ylab("Variable Importance")+
+      xlab("")+
+      ggtitle("Variable Importance Plot - Top 20 out of 63")+
+      guides(fill=F)+
+      scale_fill_gradient(low="red", high="blue") + theme(axis.text.x = element_text(angle = 90, size = axis.text.x_sz,  vjust = 0.5, hjust=1), axis.text.y = element_text(color = "grey20",  size = axis.text.y_sz, angle = 0, hjust = 1, vjust = 0, face = "plain"),  
+        axis.title.x = element_text(color = "grey20",  size = axis.title.x_sz, angle = 0, hjust = .5, vjust = 0, face = "plain"),
+        axis.title.y = element_text(color = "grey20",  size = axis.title.y_sz, angle = 90, hjust = .5, vjust = .5, face = "plain"),
+        plot.title = element_text(size=plot.title_sz))
+```
+As expected tuition costs, room and board, stem percent and rank are the most importance variables. The latter two possibly because higher living costs yield higher tuitions but also higher salaries. Stem percent means higher salary on average. Also, the way the variable rank is coded in this dataset, lower estimated-salary-rank means higher expected salary. The method for selecting the important variables was to check the mean decrease in node impurity for each variable at each level of the tree.
+
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+options(warn = oldw)
+```
+
+
+## Summary
+The testing RMSEs for all models are:
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+RMSE_all = c("Elastic net"=RMSE_test_elnet, "Linear regression"=RMSE_test_lm_AIC_CV, "KNN"=RMSE_test_knn, "SVM Radial"=RMSE_test_svm.radial, "SVM Linear"=RMSE_test_svm.linear, "Random forest"=RMSE_test_random_forest)
+```
+
+```{r, echo=FALSE, fig.width=16, fig.height=6, fig.align="center",warning=FALSE}
+RMSE_all_data = data.frame(name=names(RMSE_all), value=RMSE_all)
+
+ggplot(data=RMSE_all_data, aes(x=name, y=value)) +
+geom_bar(stat="identity",color="darkred",width = 0.1)+ ggtitle("RMSE for all models")+
+xlab("Model") + ylab("RMSE") + theme(axis.text.x = element_text(angle = 90, size = axis.text.x_sz,  vjust = 0.5, hjust=1), axis.text.y = element_text(color = "grey20",  size = axis.text.y_sz, angle = 0, hjust = 1, vjust = 0, face = "plain"),
+        axis.title.x = element_text(color = "grey20",  size = axis.title.x_sz, angle = 0, hjust = .5, vjust = 0, face = "plain"),
+        axis.title.y = element_text(color = "grey20",  size = axis.title.y_sz, angle = 90, hjust = .5, vjust = .5, face = "plain"),
+        plot.title = element_text(size=plot.title_sz))
+```
+
+The best performing model is the `r RMSE_all_data$name[which.min(RMSE_all_data$value)]` model. The second best model is SVM Linear, whose performance is close to the best performing model. The third best model is the Random Forest Model. The fourth best model is the Linear Regression model. The fifth best performing model is the SVM Radial model. The sixth, and last, model is the triangular-kernel Nearest Neighbours model.
