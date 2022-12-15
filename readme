@@ -1,7 +1,7 @@
 # Salary inference and prediction from college data
 
 ## Data origins
-The data was obtained from Kaggle (link: https://www.kaggle.com/jessemostipak/college-tuition-diversityand-pay/version/2?select=historical_tuition.csv). It originally came from the US Department of Education.
+The data was obtained from Kaggle (link: https://www.kaggle.com/jessemostipak/college-tuition-diversity-and-pay/version/2?select=historical_tuition.csv). It originally came from the US Department of Education.
 
 ## Data background
 
@@ -10,7 +10,7 @@ and tuition and fees for various United States college and universities, along w
 and state. Moreover, historical tuition averages (e.g. over a few number of years) from the National Center
 for Education Statistics, are also included. Moreover, it contains salary potential per university, and graduate
 rates, and other information. A complete description of the datasets along with the various sources from
-which the datasets were obrained can be found at: https://www.kaggle.com/jessemostipak/college-tuitiondiversity-and-pay/version/2?select=historical_tuition.csv
+which the datasets were obrained can be found at: https://www.kaggle.com/jessemostipak/college-tuition-diversity-and-pay/version/2?select=historical_tuition.csv
 
 ## Brief introduction of the goal of this final project.
 The goal of this project is to firstly analyze the College Tuition dataset and then build inference and
