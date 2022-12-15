@@ -2,7 +2,7 @@
 
 ## Data origins
 
-The data was obtained from Kaggle\ (link: https://www.kaggle.com/jessemostipak/college-tuition-diversity-and-pay/version/2?select=historical_tuition.csv). It originally came from the US Department of Education.
+The data was obtained from Kaggle link: https://www.kaggle.com/jessemostipak/college-tuition-diversity-and-pay/version/2?select=historical_tuition.csv). It originally came from the US Department of Education.
 
 ## Data background
 
