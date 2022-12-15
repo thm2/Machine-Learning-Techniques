@@ -13,6 +13,7 @@ rates, and other information. A complete description of the datasets along with 
 which the datasets were obrained can be found at: https://www.kaggle.com/jessemostipak/college-tuition-diversity-and-pay/version/2?select=historical_tuition.csv
 
 ## Brief introduction of the goal of this final project.
+
 The goal of this project is to firstly analyze the College Tuition dataset and then build inference and
 prediction models with the response variable being one of the dataset variables, and in specific, the sum
 of their estimated early- and mid-career salaries. 
