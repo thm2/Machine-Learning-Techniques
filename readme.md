@@ -23,4 +23,4 @@ For the first part, an Explanatory Data Analysis will be
 conducted which will analyze the dataset with respect to the nature of the variables included, what variables
 should be kept, trends between variables (e.g. the costs of college tuition by geographic area, or estimated
 salary trends) etc. For the second part, inference will be conducted initially, and inference conclusions will be
-presented. Then, prediction models will be made for that response variable and the best will be selected.
+presented. Then, prediction models will be made for that response variable and the best will be selected
